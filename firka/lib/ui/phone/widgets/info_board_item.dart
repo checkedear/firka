@@ -3,6 +3,7 @@ import 'package:firka/ui/theme/style.dart';
 import 'package:flutter/material.dart';
 
 import 'package:kreta_api/kreta_api.dart';
+import 'package:majesticons_flutter/majesticons_flutter.dart';
 
 // TODO: Finish
 class InfoBoardItemWidget extends StatelessWidget {
@@ -14,59 +15,49 @@ class InfoBoardItemWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return FirkaCard(
       left: [
-        Row(
-          children: [
-            Container(
-              decoration: ShapeDecoration(
-                color: appStyle.colors.accent,
-                shape: CircleBorder(
-                  eccentricity: 1,
-                  // borderRadius: BorderRadius.circular(6)),
-                ),
-              ),
-              child: SizedBox(
-                width: 28,
-                height: 28,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text(
-                        item.author[0],
-                        style: appStyle.fonts.H_18px.copyWith(
-                          fontSize: 20,
-                          color: appStyle.colors.textPrimary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+        Container(
+          margin: EdgeInsets.symmetric(vertical: 0, horizontal: 8),
+          height: 32,
+          width: 32,
+          decoration: ShapeDecoration(
+            color: appStyle.colors.accent,
+            shape: CircleBorder(
+              eccentricity: 1,
+              // borderRadius: BorderRadius.circular(6)),
+            ),
+          ),
+          child: Center(
+            child: Text(
+              item.author[0],
+              style: appStyle.fonts.H_18px.copyWith(
+                fontSize: 22,
+                color: appStyle.colors.textPrimary,
               ),
             ),
-            SizedBox(width: 8),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: MediaQuery.of(context).size.width / 1.4,
-                  child: Text(
-                    item.title,
-                    style: appStyle.fonts.B_16SB.apply(
-                      color: appStyle.colors.textPrimary,
-                    ),
-                  ),
-                ),
-                Text(
-                  item.author,
-                  style: appStyle.fonts.B_16R.apply(
-                    color: appStyle.colors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
+        SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                overflow: TextOverflow.ellipsis,
+                item.title.trim(),
+                style: appStyle.fonts.B_16SB.apply(
+                  color: appStyle.colors.textPrimary,
+                ),
+              ),
+              Text(
+                item.author,
+                style: appStyle.fonts.B_16R.apply(
+                  color: appStyle.colors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(width: 16),
       ],
     );
   }
