@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firka/api/client/kreta_stream.dart';
+import 'package:firka/ui/phone/widgets/grade_card.dart';
 import 'package:kreta_api/kreta_api.dart';
 import 'package:firka/core/extensions.dart';
 import 'package:firka/ui/components/common_bottom_sheets.dart';
@@ -207,187 +208,7 @@ class _HomeMainScreen extends FirkaState<HomeMainScreen> {
   }
 
   Widget _buildContent(BuildContext context) {
-    Widget welcomeWidget = SizedBox();
-    Widget nextClass = SizedBox();
-    Widget? nextTest;
-    bool lessonActive = false;
-
-    if (lessons != null && lessons!.isNotEmpty) {
-      if (now.isBefore(lessons!.first.start)) {
-        welcomeWidget = StartingSoonWidget(widget.data.l10n, now, lessons!);
-      } else {
-        var currentLesson = lessons!.firstWhereOrNull(
-          (lesson) => now.isAfter(lesson.start) && now.isBefore(lesson.end),
-        );
-        var prevLesson = lessons!.getPrevLesson(now);
-        var nextLesson = lessons!.getNextLesson(now);
-        int? lessonIndex;
-
-        if (currentLesson != null) {
-          lessonIndex = lessons!.getLessonNo(currentLesson);
-          lessonActive = true;
-        }
-
-        welcomeWidget = LessonBigWidget(
-          widget.data.l10n,
-          now,
-          lessonIndex,
-          currentLesson,
-          prevLesson,
-          nextLesson,
-          lessons!,
-          tests ?? [],
-        );
-      }
-    }
-    if (lessons != null && lessons!.isNotEmpty) {
-      var nextLesson = lessons!.getNextLesson(now);
-      if (nextLesson != null) {
-        nextClass = LessonSmallWidget(
-          widget.data.l10n,
-          nextLesson,
-          lessonActive,
-        );
-
-        if (tests != null) {
-          final testsOnDate = tests!
-              .where(
-                (test) =>
-                    test.date.isAfter(
-                      nextLesson.start.getMidnight().subtract(
-                        Duration(seconds: 1),
-                      ),
-                    ) &&
-                    test.date.isBefore(
-                      nextLesson.end.getMidnight().add(
-                        Duration(hours: 23, minutes: 59),
-                      ),
-                    ) &&
-                    test.subject.uid == nextLesson.subject?.uid,
-              )
-              .toList();
-
-          if (testsOnDate.isNotEmpty) {
-            final test = testsOnDate.first;
-
-            nextTest = FirkaCard(
-              left: [
-                FirkaIconWidget(
-                  FirkaIconType.majesticons,
-                  Majesticon.editPen4Solid,
-                  color: appStyle.colors.accent,
-                ),
-                SizedBox(width: 6),
-                Text(
-                  test.theme,
-                  style: appStyle.fonts.B_16SB.apply(
-                    color: appStyle.colors.textSecondary,
-                  ),
-                ),
-              ],
-              right: [
-                Text(
-                  test.method.description ?? "N/A",
-                  style: appStyle.fonts.B_16R.apply(
-                    color: appStyle.colors.textTertiary,
-                  ),
-                ),
-              ],
-            );
-          }
-        }
-      }
-    }
-
-    if (student != null && lessons != null) {
-      final infoItems = infoBoard ?? [];
-      final gradeItems = grades ?? [];
-      final homeworkItems = homework ?? [];
-      final noticeBoardWidgets = <(Widget, DateTime)>[];
-
-      for (final item in infoItems) {
-        noticeBoardWidgets.add((
-          GestureDetector(
-            child: InfoBoardItemWidget(item),
-            onTap: () {
-              context.push('/message', extra: item);
-            },
-          ),
-          item.date,
-        ));
-      }
-
-      for (final grade in gradeItems) {
-        noticeBoardWidgets.add((
-          GestureDetector(
-            child: FirkaCard(
-              left: [
-                GradeWidget(grade),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        (grade.topic ?? grade.type.description!).firstUpper(),
-                        style: appStyle.fonts.B_16SB.apply(
-                          color: appStyle.colors.textPrimary,
-                        ),
-                      ),
-                      grade.mode?.description != null
-                          ? Text(
-                              grade.mode!.description!.firstUpper(),
-                              style: appStyle.fonts.B_16R.apply(
-                                color: appStyle.colors.textSecondary,
-                              ),
-                            )
-                          : SizedBox(),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            onTap: () {
-              showGradeBottomSheet(context, widget.data, grade);
-            },
-          ),
-          grade.recordDate,
-        ));
-      }
-
-      for (final entry in homeworkItems) {
-        noticeBoardWidgets.add((
-          HomeworkWidget(widget.data, entry),
-          entry.creationDate,
-        ));
-      }
-
-      noticeBoardWidgets.sort(
-        (item1, item2) => item2.$2.difference(item1.$2).inMilliseconds,
-      );
-
-      return Padding(
-        padding: const EdgeInsets.only(left: 20.0, top: 24.0, right: 20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            WelcomeWidget(widget.data.l10n, now, student!, lessons!),
-            SizedBox(height: 48),
-            welcomeWidget,
-            lessonActive ? SizedBox(height: 5) : SizedBox(height: 0),
-            nextClass,
-            nextTest != null ? SizedBox(height: 12) : SizedBox(height: 0),
-            nextTest ?? SizedBox(),
-            nextTest != null ? SizedBox(height: 12) : SizedBox(height: 0),
-            Expanded(
-              child: ListView(
-                children: noticeBoardWidgets.map((e) => e.$1).toList(),
-              ),
-            ),
-          ],
-        ),
-      );
-    } else {
+    if (student == null || lessons == null) {
       return Scaffold(
         backgroundColor: appStyle.colors.background,
         body: Column(
@@ -401,5 +222,138 @@ class _HomeMainScreen extends FirkaState<HomeMainScreen> {
         ),
       );
     }
+
+    Widget welcomeWidget = SizedBox();
+    Widget nextClass = SizedBox();
+    Widget? nextTest;
+    bool lessonActive = false;
+
+    if (lessons!.isNotEmpty && now.isBefore(lessons!.first.start)) {
+      welcomeWidget = StartingSoonWidget(widget.data.l10n, now, lessons!);
+    } else {
+      var currentLesson = lessons?.firstWhereOrNull(
+        (lesson) => now.isAfter(lesson.start) && now.isBefore(lesson.end),
+      );
+      var prevLesson = lessons?.getPrevLesson(now);
+      var nextLesson = lessons?.getNextLesson(now);
+      int? lessonIndex;
+
+      if (currentLesson != null) {
+        lessonIndex = lessons?.getLessonNo(currentLesson);
+        lessonActive = true;
+      }
+
+      welcomeWidget = LessonBigWidget(
+        widget.data.l10n,
+        now,
+        lessonIndex,
+        currentLesson,
+        prevLesson,
+        nextLesson,
+        lessons!,
+        tests ?? [],
+      );
+    }
+
+    var nextLesson = lessons?.getNextLesson(now);
+    if (nextLesson != null) {
+      nextClass = LessonSmallWidget(widget.data.l10n, nextLesson, lessonActive);
+
+      if (tests != null) {
+        final firstTest = tests!.firstWhereOrNull(
+          (test) =>
+              test.date.isAfter(
+                nextLesson.start.getMidnight().subtract(Duration(seconds: 1)),
+              ) &&
+              test.date.isBefore(
+                nextLesson.end.getMidnight().add(
+                  Duration(hours: 23, minutes: 59),
+                ),
+              ) &&
+              test.subject.uid == nextLesson.subject?.uid,
+        );
+
+        if (firstTest != null) {
+          nextTest = FirkaCard(
+            left: [
+              FirkaIconWidget(
+                FirkaIconType.majesticons,
+                Majesticon.editPen4Solid,
+                color: appStyle.colors.accent,
+              ),
+              SizedBox(width: 6),
+              Text(
+                firstTest.theme,
+                style: appStyle.fonts.B_16SB.apply(
+                  color: appStyle.colors.textSecondary,
+                ),
+              ),
+            ],
+            right: [
+              Text(
+                firstTest.method.description,
+                style: appStyle.fonts.B_16R.apply(
+                  color: appStyle.colors.textTertiary,
+                ),
+              ),
+            ],
+          );
+        }
+      }
+    }
+
+    final infoItems = infoBoard ?? [];
+    final gradeItems = grades ?? [];
+    final homeworkItems = homework ?? [];
+    final noticeBoardWidgets = <(Widget, DateTime)>[];
+
+    for (final item in infoItems) {
+      noticeBoardWidgets.add((
+        GestureDetector(
+          child: InfoBoardItemWidget(item),
+          onTap: () {
+            context.push('/message', extra: item);
+          },
+        ),
+        item.date,
+      ));
+    }
+
+    for (final grade in gradeItems) {
+      noticeBoardWidgets.add((GradeCard(grade), grade.recordDate));
+    }
+
+    for (final entry in homeworkItems) {
+      noticeBoardWidgets.add((
+        HomeworkWidget(widget.data, entry),
+        entry.creationDate,
+      ));
+    }
+
+    noticeBoardWidgets.sort(
+      (item1, item2) => item2.$2.difference(item1.$2).inMilliseconds,
+    );
+
+    return Padding(
+      padding: const EdgeInsets.only(left: 20.0, top: 24.0, right: 20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          WelcomeWidget(widget.data.l10n, now, student!, lessons!),
+          SizedBox(height: 48),
+          welcomeWidget,
+          SizedBox(height: 5),
+          nextClass,
+          SizedBox(height: nextTest != null ? 12 : 0),
+          nextTest ?? SizedBox(),
+          SizedBox(height: nextTest != null ? 12 : 0),
+          Expanded(
+            child: ListView(
+              children: noticeBoardWidgets.map((e) => e.$1).toList(),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
