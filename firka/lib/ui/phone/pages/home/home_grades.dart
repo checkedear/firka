@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:kreta_api/kreta_api.dart';
 import 'package:firka/core/average_helper.dart';
 import 'package:firka/ui/components/firka_card.dart';
@@ -17,6 +19,7 @@ import 'package:firka/core/bloc/home_refresh_cubit.dart';
 import 'package:firka/core/settings.dart';
 import 'package:firka/ui/theme/style.dart';
 import 'package:firka/ui/shared/delayed_spinner.dart';
+import 'package:majesticons_flutter/majesticons_flutter.dart';
 
 class HomeGradesScreen extends StatefulWidget {
   final AppInitialization data;
@@ -104,17 +107,89 @@ class _HomeGradesScreen extends FirkaState<HomeGradesScreen> {
           children: [SizedBox(), DelayedSpinnerWidget(), SizedBox()],
         ),
       );
-    } else {
-      var subjectAvg = 0.00;
-      var subjectCount = 0;
-      var subjectAvgRounded = 0.00;
-      final allGrades = grades!.response!;
-      final bySubject = <String, List<Grade>>{};
-      for (final g in allGrades) {
-        bySubject.putIfAbsent(g.subject.uid, () => []).add(g);
+    }
+
+    var subjectAvg = 0.00;
+    var subjectCount = 0;
+    var subjectAvgRounded = 0.00;
+    final allGrades = grades!.response!;
+    final bySubject = <String, List<Grade>>{};
+    for (final g in allGrades) {
+      bySubject.putIfAbsent(g.subject.uid, () => []).add(g);
+    }
+    final gradesForCalculation = <Grade>[];
+    for (final subjectGrades in bySubject.values) {
+      final feleviOrEvvegi = subjectGrades.where((g) {
+        final typeName = g.type.name?.toLowerCase() ?? '';
+        return typeName == 'felevi_jegy_ertekeles' ||
+            typeName == 'evvegi_jegy_ertekeles';
+      }).toList();
+      final hasOtherType = subjectGrades.any((g) {
+        final typeName = g.type.name?.toLowerCase() ?? '';
+        return typeName != 'felevi_jegy_ertekeles' &&
+            typeName != 'evvegi_jegy_ertekeles';
+      });
+      if (!hasOtherType && feleviOrEvvegi.isNotEmpty) {
+        final withValue = feleviOrEvvegi
+            .where((g) => g.numericValue != null && g.numericValue! > 0)
+            .toList();
+        if (withValue.isNotEmpty) {
+          withValue.sort((a, b) => a.recordDate.compareTo(b.recordDate));
+          gradesForCalculation.add(withValue.last);
+        }
+      } else {
+        gradesForCalculation.addAll(
+          subjectGrades.where((g) => !shouldIgnoreInAverage(g)),
+        );
       }
-      final gradesForCalculation = <Grade>[];
-      for (final subjectGrades in bySubject.values) {
+    }
+
+    final summaryAvg2 = calculateAverage(
+      gradesForCalculation,
+      applyIgnoreFilter: false,
+    );
+    final List<Subject> subjects = List<Subject>.empty(growable: true);
+    final List<Widget> gradeCards = [];
+
+    for (var e in bySubject.entries) {
+      if (subjects.any((s) => s.uid == e.key)) {
+        continue;
+      }
+
+      subjects.add(e.value.first.subject);
+    }
+
+    if (lessons != null && lessons!.response != null) {
+      for (var lesson in lessons!.response!) {
+        if (subjects.any((s) => s.uid == lesson.uid)) {
+          continue;
+        }
+
+        subjects.add(
+          Subject(
+            uid: lesson.uid,
+            name: lesson.name,
+            category: NameUidDesc(
+              uid: lesson.subjectCategoryId,
+              name: lesson.subjectCategoryName,
+              description: lesson.subjectCategoryDescription,
+            ),
+            sortIndex: lesson.sortIndex,
+            teacherName: lesson.teacherName,
+          ),
+        );
+      }
+    }
+
+    subjects.sort((s1, s2) => s1.name.compareTo(s2.name));
+
+    for (var subject in subjects) {
+      final subjectGrades = allGrades
+          .where((g) => g.subject.uid == subject.uid)
+          .toList();
+
+      double avg = double.nan;
+      if (subjectGrades.isNotEmpty) {
         final feleviOrEvvegi = subjectGrades.where((g) {
           final typeName = g.type.name?.toLowerCase() ?? '';
           return typeName == 'felevi_jegy_ertekeles' ||
@@ -131,321 +206,228 @@ class _HomeGradesScreen extends FirkaState<HomeGradesScreen> {
               .toList();
           if (withValue.isNotEmpty) {
             withValue.sort((a, b) => a.recordDate.compareTo(b.recordDate));
-            gradesForCalculation.add(withValue.last);
+            avg = withValue.last.numericValue!.toDouble();
           }
         } else {
-          gradesForCalculation.addAll(
-            subjectGrades.where((g) => !shouldIgnoreInAverage(g)),
-          );
+          avg = subjectGrades.getAverageBySubject(subject);
         }
       }
 
-      final summaryAvg2 = calculateAverage(
-        gradesForCalculation,
-        applyIgnoreFilter: false,
+      gradeCards.add(
+        GestureDetector(
+          child: GradeSmallCard(allGrades, subject),
+          onTap: () {
+            activeSubjectUid = subject.uid;
+            subjectName = subject.name;
+            subjectId = subject.uid;
+            subjectCategory = subject.category.name!;
+            subjectInfo = subjects.where((s) => s.uid == subject.uid).toList();
+            context.go('/grades/subject/${subject.uid}');
+          },
+        ),
       );
-      final List<Subject> subjects = List<Subject>.empty(growable: true);
-      final List<Widget> gradeCards = [];
 
-      for (var grade in allGrades) {
-        if (subjects.where((s) => s.uid == grade.subject.uid).isEmpty) {
-          subjects.add(grade.subject);
-        }
+      if (!avg.isNaN && avg > 0) {
+        subjectCount++;
+        subjectAvg += avg;
+        final rounding = widget.data.settings
+            .group("settings")
+            .subGroup("application")
+            .subGroup("rounding");
+        subjectAvgRounded += roundGrade(
+          avg,
+          t1: rounding.dbl("1"),
+          t2: rounding.dbl("2"),
+          t3: rounding.dbl("3"),
+          t4: rounding.dbl("4"),
+        );
       }
+    }
 
-      if (lessons != null && lessons!.response != null) {
-        for (var lesson in lessons!.response!) {
-          if (subjects.where((s) => s.uid == lesson.uid).isEmpty) {
-            subjects.add(
-              Subject(
-                uid: lesson.uid,
-                name: lesson.name,
-                category: NameUidDesc(
-                  uid: lesson.subjectCategoryId,
-                  name: lesson.subjectCategoryName,
-                  description: lesson.subjectCategoryDescription,
-                ),
-                sortIndex: lesson.sortIndex,
-              ),
-            );
-          }
-        }
-      }
-
-      subjects.sort((s1, s2) => s1.name.compareTo(s2.name));
-
-      for (var subject in subjects) {
-        final subjectGrades = allGrades
-            .where((g) => g.subject.uid == subject.uid)
-            .toList();
-
-        double avg = double.nan;
-        if (subjectGrades.isNotEmpty) {
-          final feleviOrEvvegi = subjectGrades.where((g) {
-            final typeName = g.type.name?.toLowerCase() ?? '';
-            return typeName == 'felevi_jegy_ertekeles' ||
-                typeName == 'evvegi_jegy_ertekeles';
-          }).toList();
-          final hasOtherType = subjectGrades.any((g) {
-            final typeName = g.type.name?.toLowerCase() ?? '';
-            return typeName != 'felevi_jegy_ertekeles' &&
-                typeName != 'evvegi_jegy_ertekeles';
-          });
-          if (!hasOtherType && feleviOrEvvegi.isNotEmpty) {
-            final withValue = feleviOrEvvegi
-                .where((g) => g.numericValue != null && g.numericValue! > 0)
-                .toList();
-            if (withValue.isNotEmpty) {
-              withValue.sort((a, b) => a.recordDate.compareTo(b.recordDate));
-              avg = withValue.last.numericValue!.toDouble();
-            }
-          } else {
-            avg = subjectGrades.getAverageBySubject(subject);
-          }
-        }
-
-        if (avg.isNaN) {
-          gradeCards.add(
-            GestureDetector(
-              child: GradeSmallCard(allGrades, subject),
-              onTap: () {
-                activeSubjectUid = subject.uid;
-                subjectName = subject.name;
-                subjectId = subject.uid;
-                subjectCategory = subject.category.name!;
-                subjectInfo = subjects
-                    .where((s) => s.uid == subject.uid)
-                    .toList();
-                context.go('/grades/subject/${subject.uid}');
-              },
-            ),
-          );
-        } else {
-          gradeCards.add(
-            GestureDetector(
-              child: GradeSmallCard(allGrades, subject),
-              onTap: () {
-                activeSubjectUid = subject.uid;
-                subjectName = subject.name;
-                subjectId = subject.uid;
-                subjectCategory = subject.category.name!;
-                subjectInfo = subjects
-                    .where((s) => s.uid == subject.uid)
-                    .toList();
-                context.go('/grades/subject/${subject.uid}');
-              },
-            ),
-          );
-        }
-
-        if (!avg.isNaN && avg > 0) {
-          subjectCount++;
-          subjectAvg += avg;
-          final rounding = widget.data.settings
-              .group("settings")
-              .subGroup("application")
-              .subGroup("rounding");
-          subjectAvgRounded += roundGrade(
-            avg,
-            t1: rounding.dbl("1"),
-            t2: rounding.dbl("2"),
-            t3: rounding.dbl("3"),
-            t4: rounding.dbl("4"),
-          );
-        }
-      }
-
+    if (subjectCount > 0) {
       subjectAvg /= subjectCount;
       subjectAvgRounded /= subjectCount;
+    }
 
-      if (subjectCount == 0) {
-        subjectAvg = 0.00;
-        subjectAvgRounded = 0.00;
-      }
+    final rounding = widget.data.settings
+        .group("settings")
+        .subGroup("application")
+        .subGroup("rounding");
+    var subjectAvgColor = getGradeColor(
+      subjectAvg,
+      t1: rounding.dbl("1"),
+      t2: rounding.dbl("2"),
+      t3: rounding.dbl("3"),
+      t4: rounding.dbl("4"),
+    );
 
-      final rounding = widget.data.settings
-          .group("settings")
-          .subGroup("application")
-          .subGroup("rounding");
-      var subjectAvgColor = getGradeColor(
-        subjectAvg,
-        t1: rounding.dbl("1"),
-        t2: rounding.dbl("2"),
-        t3: rounding.dbl("3"),
-        t4: rounding.dbl("4"),
-      );
-
-      return Padding(
-        padding: const EdgeInsets.only(left: 20.0, right: 20.0, top: 12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return Padding(
+      padding: const EdgeInsets.only(left: 20.0, right: 20.0, top: 12.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                widget.data.l10n.subjects,
+                style: appStyle.fonts.H_H2.apply(
+                  color: appStyle.colors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          GradeChartWithInteraction(grades: gradesForCalculation),
+          SizedBox(height: 2),
+          GradeSummaryBar(grades: gradesForCalculation, l10n: widget.data.l10n),
+          SizedBox(height: 12),
+          Expanded(
+            child: ListView(
               children: [
                 Text(
-                  widget.data.l10n.subjects,
-                  style: appStyle.fonts.H_H2.apply(
-                    color: appStyle.colors.textPrimary,
+                  widget.data.l10n.your_subjects,
+                  style: appStyle.fonts.H_14px.apply(
+                    color: appStyle.colors.textSecondary,
                   ),
+                ),
+                SizedBox(height: 16),
+                ...gradeCards,
+                SizedBox(height: 16),
+                Text(
+                  widget.data.l10n.data,
+                  style: appStyle.fonts.B_16SB.apply(
+                    color: appStyle.colors.textSecondary,
+                  ),
+                ),
+                SizedBox(height: 16),
+                FirkaCard(
+                  left: [
+                    Text(
+                      widget.data.l10n.subject_avg,
+                      style: appStyle.fonts.B_16SB.apply(
+                        color: appStyle.colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                  right: [
+                    Card(
+                      shadowColor: Colors.transparent,
+                      color: subjectAvgColor.withAlpha(38),
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          left: 8,
+                          right: 8,
+                          top: 4,
+                          bottom: 4,
+                        ),
+                        child: Text(
+                          subjectAvg.toStringAsFixed(2),
+                          style: appStyle.fonts.B_16SB.apply(
+                            color: subjectAvgColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                FirkaCard(
+                  left: [
+                    Text(
+                      widget.data.l10n.subject_avg_rounded,
+                      style: appStyle.fonts.B_16SB.apply(
+                        color: appStyle.colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                  right: [
+                    Card(
+                      shadowColor: Colors.transparent,
+                      color: subjectAvgColor.withAlpha(38),
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          left: 8,
+                          right: 8,
+                          top: 4,
+                          bottom: 4,
+                        ),
+                        child: Text(
+                          subjectAvgRounded.toStringAsFixed(2),
+                          style: appStyle.fonts.B_16SB.apply(
+                            color: subjectAvgColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                FirkaCard(
+                  left: [
+                    Text(
+                      widget.data.l10n.overall_avg,
+                      style: appStyle.fonts.B_16SB.apply(
+                        color: appStyle.colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                  right: [
+                    Card(
+                      shadowColor: Colors.transparent,
+                      color: subjectAvgColor.withAlpha(38),
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          left: 8,
+                          right: 8,
+                          top: 4,
+                          bottom: 4,
+                        ),
+                        child: Text(
+                          summaryAvg2.toStringAsFixed(2),
+                          style: appStyle.fonts.B_16SB.apply(
+                            color: subjectAvgColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                FirkaCard(
+                  left: [
+                    Text(
+                      widget.data.l10n.class_avg,
+                      style: appStyle.fonts.B_16SB.apply(
+                        color: appStyle.colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+                FirkaCard(
+                  left: [
+                    Text(
+                      widget.data.l10n.class_n,
+                      style: appStyle.fonts.B_16SB.apply(
+                        color: appStyle.colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                  right: [
+                    Text(
+                      week!.response!
+                          .where(
+                            (lesson) =>
+                                lesson.type.name != TimetableConsts.event,
+                          )
+                          .length
+                          .toString(),
+                      style: appStyle.fonts.B_16SB.apply(
+                        color: appStyle.colors.textPrimary,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-            GradeChartWithInteraction(grades: gradesForCalculation),
-            SizedBox(height: 2),
-            GradeSummaryBar(
-              grades: gradesForCalculation,
-              l10n: widget.data.l10n,
-            ),
-            SizedBox(height: 12),
-            Expanded(
-              child: ListView(
-                children: [
-                  Text(
-                    widget.data.l10n.your_subjects,
-                    style: appStyle.fonts.H_14px.apply(
-                      color: appStyle.colors.textSecondary,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  ...gradeCards,
-                  SizedBox(height: 16),
-                  Text(
-                    widget.data.l10n.data,
-                    style: appStyle.fonts.B_16SB.apply(
-                      color: appStyle.colors.textSecondary,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  FirkaCard(
-                    left: [
-                      Text(
-                        widget.data.l10n.subject_avg,
-                        style: appStyle.fonts.B_16SB.apply(
-                          color: appStyle.colors.textPrimary,
-                        ),
-                      ),
-                    ],
-                    right: [
-                      Card(
-                        shadowColor: Colors.transparent,
-                        color: subjectAvgColor.withAlpha(38),
-                        child: Padding(
-                          padding: EdgeInsets.only(
-                            left: 8,
-                            right: 8,
-                            top: 4,
-                            bottom: 4,
-                          ),
-                          child: Text(
-                            subjectAvg.toStringAsFixed(2),
-                            style: appStyle.fonts.B_16SB.apply(
-                              color: subjectAvgColor,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  FirkaCard(
-                    left: [
-                      Text(
-                        widget.data.l10n.subject_avg_rounded,
-                        style: appStyle.fonts.B_16SB.apply(
-                          color: appStyle.colors.textPrimary,
-                        ),
-                      ),
-                    ],
-                    right: [
-                      Card(
-                        shadowColor: Colors.transparent,
-                        color: subjectAvgColor.withAlpha(38),
-                        child: Padding(
-                          padding: EdgeInsets.only(
-                            left: 8,
-                            right: 8,
-                            top: 4,
-                            bottom: 4,
-                          ),
-                          child: Text(
-                            subjectAvgRounded.toStringAsFixed(2),
-                            style: appStyle.fonts.B_16SB.apply(
-                              color: subjectAvgColor,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  FirkaCard(
-                    left: [
-                      Text(
-                        widget.data.l10n.overall_avg,
-                        style: appStyle.fonts.B_16SB.apply(
-                          color: appStyle.colors.textPrimary,
-                        ),
-                      ),
-                    ],
-                    right: [
-                      Card(
-                        shadowColor: Colors.transparent,
-                        color: subjectAvgColor.withAlpha(38),
-                        child: Padding(
-                          padding: EdgeInsets.only(
-                            left: 8,
-                            right: 8,
-                            top: 4,
-                            bottom: 4,
-                          ),
-                          child: Text(
-                            summaryAvg2.toStringAsFixed(2),
-                            style: appStyle.fonts.B_16SB.apply(
-                              color: subjectAvgColor,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  FirkaCard(
-                    left: [
-                      Text(
-                        widget.data.l10n.class_avg,
-                        style: appStyle.fonts.B_16SB.apply(
-                          color: appStyle.colors.textPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  FirkaCard(
-                    left: [
-                      Text(
-                        widget.data.l10n.class_n,
-                        style: appStyle.fonts.B_16SB.apply(
-                          color: appStyle.colors.textPrimary,
-                        ),
-                      ),
-                    ],
-                    right: [
-                      Text(
-                        week!.response!
-                            .where(
-                              (lesson) =>
-                                  lesson.type.name != TimetableConsts.event,
-                            )
-                            .length
-                            .toString(),
-                        style: appStyle.fonts.B_16SB.apply(
-                          color: appStyle.colors.textPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
+          ),
+        ],
+      ),
+    );
   }
 }
