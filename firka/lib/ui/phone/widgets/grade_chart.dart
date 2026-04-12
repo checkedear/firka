@@ -1,3 +1,6 @@
+import 'package:firka/app/app_state.dart';
+import 'package:firka/core/settings.dart';
+import 'package:firka/core/state/firka_state.dart';
 import 'package:kreta_api/kreta_api.dart';
 import 'package:firka/routing/chart_interaction_scope.dart';
 import 'package:firka/ui/components/grade_helpers.dart';
@@ -17,14 +20,6 @@ class _GradeChartState extends State<GradeChart> {
   bool _tooltipActive = false;
   double? _tooltipY;
   int? _touchedIndex;
-
-  List<Color> gradientColors = [
-    appStyle.colors.grade5,
-    appStyle.colors.grade4,
-    appStyle.colors.grade3,
-    appStyle.colors.grade2,
-    appStyle.colors.grade1,
-  ];
 
   late List<FlSpot> spots;
 
@@ -78,11 +73,6 @@ class _GradeChartState extends State<GradeChart> {
     final sortedGrades = List<Grade>.from(widget.grades)
       ..sort((a, b) => a.creationDate.compareTo(b.creationDate));
 
-    if (sortedGrades.isEmpty) {
-      spots = [const FlSpot(0, 0)];
-      return;
-    }
-
     spots = [];
     for (var i = 0; i < sortedGrades.length; i++) {
       final grade = sortedGrades[i];
@@ -93,29 +83,12 @@ class _GradeChartState extends State<GradeChart> {
     }
 
     if (spots.isEmpty) {
-      spots = [const FlSpot(0, 0)];
-    }
-  }
-
-  List<FlSpot> _smoothSpots(List<FlSpot> input) {
-    if (input.length < 3) return input;
-
-    final smoothed = <FlSpot>[];
-    for (var i = 0; i < input.length; i++) {
-      if (i == 0 || i == input.length - 1) {
-        smoothed.add(input[i]);
-        continue;
-      }
-
-      final prev = input[i - 1].y;
-      final curr = input[i].y;
-      final next = input[i + 1].y;
-      final blended = (0.25 * prev) + (0.5 * curr) + (0.25 * next);
-
-      smoothed.add(FlSpot(input[i].x, blended));
+      spots = [const FlSpot(0, 1)];
     }
 
-    return smoothed;
+    if (spots.length == 1) {
+      spots.add(spots.first.copyWith(x: 1));
+    }
   }
 
   @override
@@ -200,69 +173,46 @@ class _GradeChartState extends State<GradeChart> {
     );
   }
 
-  Widget leftTitleWidgets(double value, TitleMeta meta) {
-    String text = switch (value.toInt()) {
-      1 => '1',
-      2 => '2',
-      3 => '3',
-      4 => '4',
-      5 => '5',
-      _ => '',
-    };
-    Color gradeColor;
-    if (text != "") {
-      gradeColor = getGradeColor(int.parse(text).toDouble());
-    } else {
-      gradeColor = getGradeColor(0);
-    }
-    final currentValue = _tooltipActive && _tooltipY != null
-        ? _tooltipY!.round()
-        : spots.last.y.round();
-    final isActive = text == currentValue.toString();
+  Color colorForY(double y) {
+    final rounding = initData.settings
+        .group("settings")
+        .subGroup("application")
+        .subGroup("rounding");
+    y = (y * 100).round().toDouble() / 100.0;
+    return getGradeColor(
+      y,
+      t1: rounding.dbl("1"),
+      t2: rounding.dbl("2"),
+      t3: rounding.dbl("3"),
+      t4: rounding.dbl("4"),
+    );
+  }
 
-    if (isActive) {
-      return buildCircle(
-        text: text,
-        bgColor: gradeColor.withAlpha(38),
-        textColor: gradeColor,
-      );
+  Widget leftTitleWidgets(double value, TitleMeta meta) {
+    Color gradeColor;
+
+    if (value < 2 || value > 5) {
+      return const SizedBox();
     }
+
+    gradeColor = colorForY(value);
+    final currentColor = colorForY(
+      _tooltipActive && _tooltipY != null ? _tooltipY! : spots.last.y,
+    );
+    final isActive = gradeColor == currentColor;
 
     return buildCircle(
-      text: text,
-      bgColor: appStyle.colors.card,
-      textColor: appStyle.colors.textPrimary.withValues(alpha: 0.2),
+      text: value.toInt().toString(),
+      bgColor: isActive ? gradeColor.withAlpha(38) : appStyle.colors.card,
+      textColor: isActive
+          ? gradeColor
+          : appStyle.colors.textPrimary.withValues(alpha: 0.2),
     );
 
     // return Text(text, style: style, textAlign: TextAlign.left);
   }
 
   LineChartData avgData() {
-    final smoothedSpots = _smoothSpots(spots);
-
-    var firstX = smoothedSpots.first.x;
-    var lastX = smoothedSpots.last.x;
-    if (firstX == lastX) {
-      lastX = firstX + 1;
-    }
-
-    Color colorForY(double y) {
-      switch (y.round()) {
-        case 1:
-          return appStyle.colors.grade1;
-        case 2:
-          return appStyle.colors.grade2;
-        case 3:
-          return appStyle.colors.grade3;
-        case 4:
-          return appStyle.colors.grade4;
-        case 5:
-          return appStyle.colors.grade5;
-        default:
-          return appStyle.colors.grade1;
-      }
-    }
-
     return LineChartData(
       lineTouchData: LineTouchData(
         handleBuiltInTouches: true,
@@ -312,7 +262,7 @@ class _GradeChartState extends State<GradeChart> {
         ),
         getTouchedSpotIndicator: (barData, spotIndexes) {
           return spotIndexes.map((index) {
-            final touchedSpot = barData.spots[index];
+            final touchedSpot = spots[index];
             return TouchedSpotIndicatorData(
               FlLine(color: colorForY(touchedSpot.y), strokeWidth: 3),
               FlDotData(show: false),
@@ -327,26 +277,6 @@ class _GradeChartState extends State<GradeChart> {
         drawVerticalLine: false,
         horizontalInterval: 1,
         getDrawingHorizontalLine: (value) {
-          if (!_tooltipActive || _tooltipY == null) {
-            return FlLine(
-              color: const Color(0xFFC8C8C8),
-              strokeWidth: 1.0,
-              dashArray: [8, 12],
-            );
-          }
-
-          const epsilon = 0.01;
-          if ((value - _tooltipY!.round()).abs() < epsilon) {
-            // return FlLine(
-            //   color: const Color(0xFFC8C8C8),
-            //   strokeWidth: 1.2,
-            // );
-            return FlLine(
-              color: const Color(0xFFC8C8C8),
-              strokeWidth: 1.0,
-              dashArray: [8, 12],
-            );
-          }
           return FlLine(
             color: const Color(0xFFC8C8C8),
             strokeWidth: 1.0,
@@ -379,19 +309,15 @@ class _GradeChartState extends State<GradeChart> {
       ),
       borderData: FlBorderData(show: false),
 
-      minX: firstX,
-      maxX: lastX,
-      minY: 0,
+      minY: 1,
       maxY: 6,
 
       lineBarsData: [
         LineChartBarData(
-          spots: smoothedSpots,
-          isCurved: true,
-          curveSmoothness: 0.5,
+          spots: spots,
           showingIndicators: _touchedIndex != null ? [_touchedIndex!] : [],
           gradient: LinearGradient(
-            colors: [for (final s in smoothedSpots) colorForY(s.y)],
+            colors: [for (final s in spots) colorForY(s.y)],
           ),
           barWidth: 5,
           isStrokeCapRound: true,
@@ -400,8 +326,7 @@ class _GradeChartState extends State<GradeChart> {
             show: true,
             gradient: LinearGradient(
               colors: [
-                for (final s in smoothedSpots)
-                  colorForY(s.y).withValues(alpha: 0.1),
+                for (final s in spots) colorForY(s.y).withValues(alpha: 0.1),
               ],
             ),
           ),
